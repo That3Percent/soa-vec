@@ -12,3 +12,10 @@ categories = ["data-structures", "memory-management"]
 license = "MIT"
 
 [dependencies]
+
+[dependencies.second-stack]
+version = "0.2.0"
+features = ["experimental"]
+
+[dev-dependencies]
+testdrop = "0.1.2"
