@@ -1,14 +1,8 @@
 #![allow(non_snake_case)]
 #![feature(allocator_api, alloc_layout_extra)]
 
-use std::{
-	slice::*,
-	alloc::*,
-	ptr::*,
-	marker::*,
-	cmp::*,
-};
 use second_stack::*;
+use std::{alloc::*, cmp::*, marker::*, ptr::*, slice::*};
 
 /// This macro defines a struct-of-arrays style struct.
 /// It need not be called often, just once per count of generic parameters.
@@ -286,95 +280,93 @@ soa!(Soa2, _2, T1, T2);
 soa!(Soa3, _3, T1, T2, T3);
 soa!(Soa4, _4, T1, T2, T3, T4);
 
-
-
 #[cfg(test)]
 mod tests {
-	use super::*;
-	use testdrop::TestDrop;
+    use super::*;
+    use testdrop::TestDrop;
 
-	#[test]
-	fn layouts_do_not_overlap() {
-		// Trying with both (small, large) and (large, small) to ensure nothing bleeds into anything else.
-		// This verifies we correctly chunk the slices from the larger allocations.
-		let mut soa_ab = Soa2::new();
-		let mut soa_ba = Soa2::new();
+    #[test]
+    fn layouts_do_not_overlap() {
+        // Trying with both (small, large) and (large, small) to ensure nothing bleeds into anything else.
+        // This verifies we correctly chunk the slices from the larger allocations.
+        let mut soa_ab = Soa2::new();
+        let mut soa_ba = Soa2::new();
 
-		fn ab(v: usize) -> (u8, f64) {
-			(v as u8, 200.0 + ((v as f64) / 200.0))
-		}
+        fn ab(v: usize) -> (u8, f64) {
+            (v as u8, 200.0 + ((v as f64) / 200.0))
+        }
 
-		fn ba(v: usize) -> (f64, u8) {
-			(15.0 + ((v as f64) / 16.0), (200 - v) as u8)
-		}
+        fn ba(v: usize) -> (f64, u8) {
+            (15.0 + ((v as f64) / 16.0), (200 - v) as u8)
+        }
 
-		// Combined with the tests inside, also verifies that we are copying the data on grow correctly.
-		for i in 0..100 {
-			soa_ab.push(ab(i));
-			let (a, b) = soa_ab.slices();
-			assert_eq!(i+1, a.len());
-			assert_eq!(i+1, b.len());
-			assert_eq!(ab(0).0, a[0]);
-			assert_eq!(ab(0).1, b[0]);
-			assert_eq!(ab(i).0, a[i]);
-			assert_eq!(ab(i).1, b[i]);
+        // Combined with the tests inside, also verifies that we are copying the data on grow correctly.
+        for i in 0..100 {
+            soa_ab.push(ab(i));
+            let (a, b) = soa_ab.slices();
+            assert_eq!(i + 1, a.len());
+            assert_eq!(i + 1, b.len());
+            assert_eq!(ab(0).0, a[0]);
+            assert_eq!(ab(0).1, b[0]);
+            assert_eq!(ab(i).0, a[i]);
+            assert_eq!(ab(i).1, b[i]);
 
-			soa_ba.push(ba(i));
-			let (b, a) = soa_ba.slices();
-			assert_eq!(i+1, a.len());
-			assert_eq!(i+1, b.len());
-			assert_eq!(ba(0).0, b[0]);
-			assert_eq!(ba(0).1, a[0]);
-			assert_eq!(ba(i).0, b[i]);
-			assert_eq!(ba(i).1, a[i]);
-		}
-	}
+            soa_ba.push(ba(i));
+            let (b, a) = soa_ba.slices();
+            assert_eq!(i + 1, a.len());
+            assert_eq!(i + 1, b.len());
+            assert_eq!(ba(0).0, b[0]);
+            assert_eq!(ba(0).1, a[0]);
+            assert_eq!(ba(i).0, b[i]);
+            assert_eq!(ba(i).1, a[i]);
+        }
+    }
 
-	#[test]
-	fn sort() {
-		let mut soa = Soa3::new();
+    #[test]
+    fn sort() {
+        let mut soa = Soa3::new();
 
-		soa.push((3, 'a', 4.0));
-		soa.push((1, 'b', 5.0));
-		soa.push((2, 'c', 6.0));
+        soa.push((3, 'a', 4.0));
+        soa.push((1, 'b', 5.0));
+        soa.push((2, 'c', 6.0));
 
-		soa.sort_unstable_by(|(a1, _, _), (a2, _, _)| a1.cmp(a2));
+        soa.sort_unstable_by(|(a1, _, _), (a2, _, _)| a1.cmp(a2));
 
-		assert_eq!(soa.get(0), (&1, &('b'), &5.0));
-		assert_eq!(soa.get(1), (&2, &('c'), &6.0));
-		assert_eq!(soa.get(2), (&3, &('a'), &4.0));
-	}
+        assert_eq!(soa.get(0), (&1, &('b'), &5.0));
+        assert_eq!(soa.get(1), (&2, &('c'), &6.0));
+        assert_eq!(soa.get(2), (&3, &('a'), &4.0));
+    }
 
-	#[test]
-	fn drops() {
-		let td = TestDrop::new();
-		let (id, item) = td.new_item();
-		{
-			let mut soa = Soa2::new();
-			soa.push((1.0, item));
+    #[test]
+    fn drops() {
+        let td = TestDrop::new();
+        let (id, item) = td.new_item();
+        {
+            let mut soa = Soa2::new();
+            soa.push((1.0, item));
 
-			// Did not drop when moved into the vec
-			td.assert_no_drop(id);
+            // Did not drop when moved into the vec
+            td.assert_no_drop(id);
 
-			// Did not drop through resizing the vec.
-			for _ in 0..50 {
-				soa.push((2.0, td.new_item().1));
-			}
-			td.assert_no_drop(id);
-		}
-		// Dropped with the vec
-		td.assert_drop(id);
-	}
+            // Did not drop through resizing the vec.
+            for _ in 0..50 {
+                soa.push((2.0, td.new_item().1));
+            }
+            td.assert_no_drop(id);
+        }
+        // Dropped with the vec
+        td.assert_drop(id);
+    }
 
-	#[test]
-	fn clones() {
-		let mut src = Soa2::new();
-		src.push((1.0, 2.0));
-		src.push((3.0, 4.0));
+    #[test]
+    fn clones() {
+        let mut src = Soa2::new();
+        src.push((1.0, 2.0));
+        src.push((3.0, 4.0));
 
-		let dst = src.clone();
-		assert_eq!(dst.len(), 2);
-		assert_eq!(dst.get(0), (&1.0, &2.0));
-		assert_eq!(dst.get(1), (&3.0, &4.0));
-	}
+        let dst = src.clone();
+        assert_eq!(dst.len(), 2);
+        assert_eq!(dst.get(0), (&1.0, &2.0));
+        assert_eq!(dst.get(1), (&3.0, &4.0));
+    }
 }
