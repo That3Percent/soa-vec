@@ -1,5 +1,44 @@
 #![allow(non_snake_case)]
 #![feature(allocator_api, alloc_layout_extra)]
+//! Soa2, Soa3, ..SoaN are generic collections with an API similar to that of a Vec<Tuple> but which store
+//! the data laid out as a separate slice per field. The advantage of this layout is that when
+//! iterating over the data only a subset need be loaded from RAM.
+//!
+//! This approach is common to game engines, and entity component systems in particular but is
+//! applicable anywhere that cache coherency and memory bandwidth are important for performance.
+//!
+//! # Example
+//! ```
+//! # use soa_vec::Soa3;
+//! /// Some 'entity' data.
+//! # #[derive(Copy, Clone)]
+//! struct Position { x: f64, y: f64 }
+//! # #[derive(Copy, Clone)]
+//! struct Velocity { dx: f64, dy: f64 }
+//! struct ColdData { /* Potentially many fields omitted here */ }
+//!
+//! # use std::ops::Add;
+//! # impl Add<Velocity> for Position { type Output=Self; fn add(self, other: Velocity) -> Self { Self { x: self.x + other.dx, y: self.y + other.dy } } }
+//! // Create a vec of entities
+//! let mut entities = Soa3::new();
+//! entities.push((Position {x: 1.0, y: 2.0}, Velocity { dx: 0.0, dy: 0.5 }, ColdData {}));
+//! entities.push((Position {x: 0.0, y: 2.0}, Velocity { dx: 0.5, dy: 0.5 }, ColdData {}));
+//!
+//! // Update entities. This loop only loads position and velocity data, while skipping over
+//! // the ColdData which is not necessary for the physics simulation.
+//! let (positions, velocities, _cold) = entities.iters_mut();
+//! for (position, velocity) in positions.zip(velocities) {
+//! 	*position = *position + *velocity;
+//! }
+//! ```
+//!
+//!
+//! # Nightly
+//! This crate currently requires a couple of features from Rust nightly to controls allocations and memory layout.
+//!
+
+
+
 
 use second_stack::*;
 use std::{alloc::*, cmp::*, marker::*, ptr::*, slice::*};
@@ -8,12 +47,7 @@ use std::{alloc::*, cmp::*, marker::*, ptr::*, slice::*};
 /// It need not be called often, just once per count of generic parameters.
 macro_rules! soa {
 	($name:ident, $L:ident, $t1:ident, $($ts:ident),+) => {
-
-		/// Stores slices in a struct-of-arrays style
-		/// with the API of Vec. The advantage over simply
-		/// using multiple Vec is that all slices live in a single allocation,
-		/// there's one shared len/capacity variable, and the API ensures
-		/// that items are kept together through all operations like push/pop/sort
+		/// Struct of arrays storage with vec API. See module docs for more information.
 		pub struct $name<$t1: Sized $(, $ts: Sized)*> {
 			len: usize,
 			capacity: usize,
@@ -23,6 +57,7 @@ macro_rules! soa {
 		}
 
 		impl<$t1: Sized $(, $ts: Sized)*> $name<$t1 $(, $ts)*> {
+			/// Creates a new Soa with a capacity of 0
 			pub fn new() -> $name<$t1 $(, $ts)*> {
 				$name {
 					len: 0,
@@ -74,15 +109,19 @@ macro_rules! soa {
 				}
 			}
 
+			/// Returns the number of tuples in the soa, also referred to as its 'length'.
 			#[inline(always)]
 			pub fn len(&self) -> usize { self.len }
 
+			/// Clears the soa, removing all values.
+			/// Note that this method has no effect on the allocated capacity of the soa.
 			pub fn clear(&mut self) {
 				while self.len > 0 {
 					self.pop();
 				}
 			}
 
+			/// Appends a tuple to the back of a soa.
 			pub fn push(&mut self, value: ($t1 $(, $ts)*)) {
 				unsafe {
 					self.check_grow();
@@ -93,6 +132,7 @@ macro_rules! soa {
 				}
 			}
 
+			/// Removes the last tuple from a soa and returns it, or None if it is empty.
 			pub fn pop(&mut self) -> Option<($t1 $(, $ts)*)> {
 				if self.len == 0 {
 					None
@@ -107,7 +147,11 @@ macro_rules! soa {
 				}
 			}
 
-			/// ##Panics:
+			/// Removes a tuple from the soa and returns it.
+			/// The removed tuple is replaced by the last tuple of the soa.
+			/// This does not preserve ordering, but is O(1).
+			///
+			/// # Panics:
 			///  * Must panic if index is out of bounds
 			pub fn swap_remove(&mut self, index: usize) -> ($t1 $(, $ts)*) {
 				if index >= self.len {
@@ -145,6 +189,7 @@ macro_rules! soa {
 				}
 			}
 
+			/// Returns a tuple of all the destructured tuples added to this soa.
 			#[inline(always)] // Inline for dead code elimination
 			pub fn slices<'a>(&self) -> (&'a [$t1] $(, &'a [$ts])*) {
 				unsafe {
@@ -155,6 +200,7 @@ macro_rules! soa {
 				}
 			}
 
+			/// Returns a tuple of iterators over each field in the soa.
 			#[inline(always)] // Inline for dead code elimination
 			pub fn iters<'a>(&self) -> (Iter<'a, $t1> $(, Iter<'a, $ts>)*) {
 				unsafe {
@@ -175,6 +221,8 @@ macro_rules! soa {
 					)
 				}
 			}
+
+			/// Returns a tuple of all the destructured mutable tuples added to this soa.
 			#[inline(always)] // Inline for dead code elimination
 			pub fn slices_mut<'a>(&self) -> (&'a mut [$t1] $(, &'a mut [$ts])*) {
 				unsafe {
@@ -185,6 +233,7 @@ macro_rules! soa {
 				}
 			}
 
+			/// This is analogous to the index operator in vec, but returns a tuple of references.
 			/// ## Panics
 			/// * If index is >= len
 			pub fn get<'a>(&self, index: usize) -> (&'a $t1 $(, &'a $ts)*) {
@@ -200,6 +249,7 @@ macro_rules! soa {
 				}
 			}
 
+			/// Sorts the soa keeping related data together.
 			pub fn sort_unstable_by<F: FnMut((&$t1 $(, &$ts)*), (&$t1 $(, &$ts)*))->Ordering>(&mut self, mut f: F) {
 				if self.len < 2 {
 					return;
