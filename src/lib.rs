@@ -279,6 +279,10 @@ macro_rules! soa {
 soa!(Soa2, _2, T1, T2);
 soa!(Soa3, _3, T1, T2, T3);
 soa!(Soa4, _4, T1, T2, T3, T4);
+soa!(Soa5, _5, T1, T2, T3, T4, T5);
+soa!(Soa6, _6, T1, T2, T3, T4, T5, T6);
+soa!(Soa7, _7, T1, T2, T3, T4, T5, T6, T7);
+soa!(Soa8, _8, T1, T2, T3, T4, T5, T6, T7, T8);
 
 #[cfg(test)]
 mod tests {
