@@ -165,6 +165,16 @@ macro_rules! soa {
 				}
 			}
 
+			/// Returns a tuple of mutable iterators over each field in the soa.
+			#[inline(always)] // Inline for dead code elimination
+			pub fn iters_mut<'a>(&mut self) -> (IterMut<'a, $t1> $(, IterMut<'a, $ts>)*) {
+				unsafe {
+					(
+						from_raw_parts_mut::<'a>(self.$t1.as_ptr(), self.len).iter_mut()
+						$(, from_raw_parts_mut::<'a>(self.$ts.as_ptr(), self.len).iter_mut())*
+					)
+				}
+			}
 			#[inline(always)] // Inline for dead code elimination
 			pub fn slices_mut<'a>(&self) -> (&'a mut [$t1] $(, &'a mut [$ts])*) {
 				unsafe {
