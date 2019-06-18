@@ -270,8 +270,11 @@ macro_rules! soa {
 						_marker: (PhantomData $(, PhantomData::<$ts>)*),
 					}
 				}
-
 			}
+		}
+
+		impl<$t1: Sized $(, $ts: Sized)*> Default for $name<$t1 $(, $ts)*> {
+			fn default() -> Self { Self::new() }
 		}
 	};
 }
