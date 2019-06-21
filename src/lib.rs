@@ -1,11 +1,12 @@
 #![allow(non_snake_case)]
 #![feature(allocator_api, alloc_layout_extra)]
-//! Soa2, Soa3, ..SoaN are generic collections with an API similar to that of a Vec<Tuple> but which store
+//! Soa2, Soa3, ..SoaN are generic collections with an API similar to that of a Vec of tuples but which store
 //! the data laid out as a separate slice per field. The advantage of this layout is that when
 //! iterating over the data only a subset need be loaded from RAM.
 //!
 //! This approach is common to game engines, and entity component systems in particular but is
 //! applicable anywhere that cache coherency and memory bandwidth are important for performance.
+//!
 //!
 //! # Example
 //! ```
@@ -30,12 +31,34 @@
 //! for (position, velocity) in positions.zip(velocities) {
 //! 	*position = *position + *velocity;
 //! }
+//!
+//! // Remove an entity
+//! entities.swap_remove(0);
+//!
+//! // Sort entities by position on y axis
+//! // The fields are passed by reference, so velocity and cold data are not loaded
+//! // until such time as the items are being swapped which runs in O(N)
+//! # use std::cmp;
+//! entities.sort_unstable_by(
+//! 	|(lh_pos, _, _), (rh_pos, _, _)| lh_pos.y.partial_cmp(&rh_pos.y).unwrap()
+//! );
+//!
+//! // See individual structs for more methods.
+//!
 //! ```
 //!
 //!
 //! # Nightly
-//! This crate currently requires a couple of features from Rust nightly to controls allocations and memory layout.
+//! This crate has strict requirements for allocations and memory layout and therefore requires the following nightly features:
+//! * allocator_api
+//! * alloc_layout_extra
 //!
+//! # Links:
+//! * [Github source](https://github.com/That3Percent/soa-vec)
+//! * [Crate](https://crates.io/crates/soa-vec)
+//!
+//! # License
+//! [MIT](https://github.com/That3Percent/soa-vec/blob/master/LICENSE)
 
 
 
