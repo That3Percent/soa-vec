@@ -8,7 +8,7 @@
 
 
  # Example
- ```
+ ```rust
  # use soa_vec::Soa3;
  /// Some 'entity' data.
  # #[derive(Copy, Clone)]
