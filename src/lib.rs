@@ -159,6 +159,10 @@ macro_rules! soa {
 			#[inline(always)]
 			pub fn capacity(&self) -> usize { self.capacity }
 
+			/// Returns true if the soa has a length of 0.
+			#[inline(always)]
+			pub fn is_empty(&self) -> bool { self.len == 0 }
+
 			/// Clears the soa, removing all values.
 			/// Note that this method has no effect on the allocated capacity of the soa.
 			pub fn clear(&mut self) {
