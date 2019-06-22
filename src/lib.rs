@@ -351,31 +351,25 @@ macro_rules! soa {
 
 		impl<$t1: Clone + Sized $(, $ts: Clone + Sized)*> Clone for $name<$t1 $(, $ts)*> {
 			fn clone(&self) -> Self {
-				let capacity = self.len;
-				if capacity == 0 {
-					Self::new()
-				} else {
-					let ($t1 $(,$ts)*) = Self::alloc(capacity);
+				let mut result = Self::with_capacity(self.len);
 
-					unsafe {
-						for i in 0..self.len {
-							write($t1.as_ptr().add(i), (&*(self.$t1.as_ptr().add(i))).clone());
-						}
-						$(
-							for i in 0..self.len {
-								write($ts.as_ptr().add(i), (&*(self.$ts.as_ptr().add(i))).clone());
-							}
-						)*
-					}
+				unsafe {
+					for i in 0..self.len {
+						// We do all the cloning first, then the ptr writing and length update
+						// to ensure drop on panic in case any clone panics. If we write to early,
+						// then the soa will not drop the most recently written item.
+						// TODO: Performance - It may be better to do each slice individually,
+						// but we'll need some kind of intermediate struct to handle drop before
+						// everything is put into the Soa.
+						let $t1 = (&*(self.$t1.as_ptr().add(i))).clone();
+						$(let $ts = (&*(self.$ts.as_ptr().add(i))).clone();)*
+						write(result.$t1.as_ptr().add(i), $t1);
+						$(write(result.$ts.as_ptr().add(i), $ts);)*;
 
-					Self {
-						capacity,
-						len: self.len,
-						$t1: $t1,
-						$($ts: $ts,)*
-						_marker: (PhantomData $(, PhantomData::<$ts>)*),
+						result.len = i + 1;
 					}
 				}
+				result
 			}
 		}
 
