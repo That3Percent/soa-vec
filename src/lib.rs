@@ -91,6 +91,25 @@ macro_rules! soa {
 				}
 			}
 
+			/// Constructs a new, empty Soa with the specified capacity.
+			/// The soa will be able to hold exactly capacity elements without reallocating. If capacity is 0, the soa will not allocate.
+			/// It is important to note that although the returned soa has the capacity specified, the soa will have a zero length.
+			pub fn with_capacity(capacity: usize) -> $name<$t1 $(, $ts)*> {
+				if capacity == 0 {
+					Self::new()
+				} else {
+					let ($t1 $(,$ts)*) = Self::alloc(capacity);
+
+					Self {
+						capacity,
+						len: 0,
+						$t1: $t1,
+						$($ts: $ts,)*
+						_marker: (PhantomData $(, PhantomData::<$ts>)*),
+					}
+				}
+			}
+
 			fn dealloc(&mut self) {
 				if self.capacity > 0 {
 					let layout = Self::layout_for_capacity(self.capacity).layout;
