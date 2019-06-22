@@ -91,6 +91,25 @@ macro_rules! soa {
 				}
 			}
 
+			/// Constructs a new, empty Soa with the specified capacity.
+			/// The soa will be able to hold exactly capacity elements without reallocating. If capacity is 0, the soa will not allocate.
+			/// It is important to note that although the returned soa has the capacity specified, the soa will have a zero length.
+			pub fn with_capacity(capacity: usize) -> $name<$t1 $(, $ts)*> {
+				if capacity == 0 {
+					Self::new()
+				} else {
+					let ($t1 $(,$ts)*) = Self::alloc(capacity);
+
+					Self {
+						capacity,
+						len: 0,
+						$t1: $t1,
+						$($ts: $ts,)*
+						_marker: (PhantomData $(, PhantomData::<$ts>)*),
+					}
+				}
+			}
+
 			fn dealloc(&mut self) {
 				if self.capacity > 0 {
 					let layout = Self::layout_for_capacity(self.capacity).layout;
@@ -135,6 +154,14 @@ macro_rules! soa {
 			/// Returns the number of tuples in the soa, also referred to as its 'length'.
 			#[inline(always)]
 			pub fn len(&self) -> usize { self.len }
+
+			/// Returns the number of elements the soa can hold without reallocating.
+			#[inline(always)]
+			pub fn capacity(&self) -> usize { self.capacity }
+
+			/// Returns true if the soa has a length of 0.
+			#[inline(always)]
+			pub fn is_empty(&self) -> bool { self.len == 0 }
 
 			/// Clears the soa, removing all values.
 			/// Note that this method has no effect on the allocated capacity of the soa.
@@ -259,7 +286,7 @@ macro_rules! soa {
 			/// This is analogous to the index operator in vec, but returns a tuple of references.
 			/// ## Panics
 			/// * If index is >= len
-			pub fn get<'a>(&self, index: usize) -> (&'a $t1 $(, &'a $ts)*) {
+			pub fn index<'a>(&self, index: usize) -> (&'a $t1 $(, &'a $ts)*) {
 				unsafe {
 					if index >= self.len {
 						panic!("Index out of range");
@@ -328,31 +355,25 @@ macro_rules! soa {
 
 		impl<$t1: Clone + Sized $(, $ts: Clone + Sized)*> Clone for $name<$t1 $(, $ts)*> {
 			fn clone(&self) -> Self {
-				let capacity = self.len;
-				if capacity == 0 {
-					Self::new()
-				} else {
-					let ($t1 $(,$ts)*) = Self::alloc(capacity);
+				let mut result = Self::with_capacity(self.len);
 
-					unsafe {
-						for i in 0..self.len {
-							write($t1.as_ptr().add(i), (&*(self.$t1.as_ptr().add(i))).clone());
-						}
-						$(
-							for i in 0..self.len {
-								write($ts.as_ptr().add(i), (&*(self.$ts.as_ptr().add(i))).clone());
-							}
-						)*
-					}
+				unsafe {
+					for i in 0..self.len {
+						// We do all the cloning first, then the ptr writing and length update
+						// to ensure drop on panic in case any clone panics. If we write to early,
+						// then the soa will not drop the most recently written item.
+						// TODO: Performance - It may be better to do each slice individually,
+						// but we'll need some kind of intermediate struct to handle drop before
+						// everything is put into the Soa.
+						let $t1 = (&*(self.$t1.as_ptr().add(i))).clone();
+						$(let $ts = (&*(self.$ts.as_ptr().add(i))).clone();)*
+						write(result.$t1.as_ptr().add(i), $t1);
+						$(write(result.$ts.as_ptr().add(i), $ts);)*;
 
-					Self {
-						capacity,
-						len: self.len,
-						$t1: $t1,
-						$($ts: $ts,)*
-						_marker: (PhantomData $(, PhantomData::<$ts>)*),
+						result.len = i + 1;
 					}
 				}
+				result
 			}
 		}
 
@@ -422,9 +443,9 @@ mod tests {
 
         soa.sort_unstable_by(|(a1, _, _), (a2, _, _)| a1.cmp(a2));
 
-        assert_eq!(soa.get(0), (&1, &('b'), &5.0));
-        assert_eq!(soa.get(1), (&2, &('c'), &6.0));
-        assert_eq!(soa.get(2), (&3, &('a'), &4.0));
+        assert_eq!(soa.index(0), (&1, &('b'), &5.0));
+        assert_eq!(soa.index(1), (&2, &('c'), &6.0));
+        assert_eq!(soa.index(2), (&3, &('a'), &4.0));
     }
 
     #[test]
@@ -456,7 +477,7 @@ mod tests {
 
         let dst = src.clone();
         assert_eq!(dst.len(), 2);
-        assert_eq!(dst.get(0), (&1.0, &2.0));
-        assert_eq!(dst.get(1), (&3.0, &4.0));
+        assert_eq!(dst.index(0), (&1.0, &2.0));
+        assert_eq!(dst.index(1), (&3.0, &4.0));
     }
 }
