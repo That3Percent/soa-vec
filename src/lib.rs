@@ -286,7 +286,7 @@ macro_rules! soa {
 			/// This is analogous to the index operator in vec, but returns a tuple of references.
 			/// ## Panics
 			/// * If index is >= len
-			pub fn get<'a>(&self, index: usize) -> (&'a $t1 $(, &'a $ts)*) {
+			pub fn index<'a>(&self, index: usize) -> (&'a $t1 $(, &'a $ts)*) {
 				unsafe {
 					if index >= self.len {
 						panic!("Index out of range");
@@ -443,9 +443,9 @@ mod tests {
 
         soa.sort_unstable_by(|(a1, _, _), (a2, _, _)| a1.cmp(a2));
 
-        assert_eq!(soa.get(0), (&1, &('b'), &5.0));
-        assert_eq!(soa.get(1), (&2, &('c'), &6.0));
-        assert_eq!(soa.get(2), (&3, &('a'), &4.0));
+        assert_eq!(soa.index(0), (&1, &('b'), &5.0));
+        assert_eq!(soa.index(1), (&2, &('c'), &6.0));
+        assert_eq!(soa.index(2), (&3, &('a'), &4.0));
     }
 
     #[test]
@@ -477,7 +477,7 @@ mod tests {
 
         let dst = src.clone();
         assert_eq!(dst.len(), 2);
-        assert_eq!(dst.get(0), (&1.0, &2.0));
-        assert_eq!(dst.get(1), (&3.0, &4.0));
+        assert_eq!(dst.index(0), (&1.0, &2.0));
+        assert_eq!(dst.index(1), (&3.0, &4.0));
     }
 }
