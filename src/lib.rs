@@ -136,6 +136,10 @@ macro_rules! soa {
 			#[inline(always)]
 			pub fn len(&self) -> usize { self.len }
 
+			/// Returns the number of elements the soa can hold without reallocating.
+			#[inline(always)]
+			pub fn capacity(&self) -> usize { self.capacity }
+
 			/// Clears the soa, removing all values.
 			/// Note that this method has no effect on the allocated capacity of the soa.
 			pub fn clear(&mut self) {
