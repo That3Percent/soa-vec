@@ -389,7 +389,7 @@ macro_rules! soa {
 						// We do all the cloning first, then the ptr writing and length update
 						// to ensure drop on panic in case any clone panics. If we write to early,
 						// then the soa will not drop the most recently written item.
-						// TODO: Performance - It may be better to do each slice individually,
+						// TODO: (Performance) - It may be better to do each slice individually,
 						// but we'll need some kind of intermediate struct to handle drop before
 						// everything is put into the Soa.
 						let $t1 = (&*(self.$t1.as_ptr().add(i))).clone();
