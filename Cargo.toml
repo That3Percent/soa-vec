@@ -11,6 +11,9 @@ keywords = ["struct-of-arrays", "soa", "vec"]
 categories = ["data-structures", "memory-management"]
 license = "MIT"
 
+[badges]
+maintenance = { status = "actively-developed" }
+
 [dependencies]
 
 [dependencies.second-stack]
