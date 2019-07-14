@@ -230,6 +230,34 @@ macro_rules! soa {
 				}
 			}
 
+			/// Removes and returns the element at position index within the vector, shifting all elements after it to the left.
+			/// # Panics
+			/// Must panic if index is out of bounds.
+			pub fn remove(&mut self, index: usize) -> ($t1 $(, $ts)*) {
+				let len = self.len;
+				assert!(index < len);
+				unsafe {
+					let $t1;
+					$(let $ts;)*
+
+					{
+						let ptr = self.$t1.as_ptr().add(index);
+						$t1 = read(ptr);
+						copy(ptr.offset(1), ptr, len - index - 1);
+					}
+
+					$({
+						let ptr = self.$ts.as_ptr().add(index);
+						$ts = read(ptr);
+						copy(ptr.offset(1), ptr, len - index - 1);
+					})*
+
+					self.len = len - 1;
+
+					($t1 $(, $ts)*)
+				}
+			}
+
 			/// Removes a tuple from the soa and returns it.
 			/// The removed tuple is replaced by the last tuple of the soa.
 			/// This does not preserve ordering, but is O(1).
@@ -523,5 +551,15 @@ mod tests {
 		assert_eq!(src.index(0), (&3, &4));
 		assert_eq!(src.index(1), (&4, &5));
 		assert_eq!(src.index(2), (&1, &2));
+	}
+
+	#[test]
+	fn remove() {
+		let mut src = Soa2::new();
+		src.push((1, 2));
+		src.push((3, 4));
+		assert_eq!(src.remove(0), (1, 2));
+		assert_eq!(src.remove(0), (3, 4));
+		assert_eq!(src.len(), 0);
 	}
 }
