@@ -1,6 +1,6 @@
 [package]
 name = "soa-vec"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Zac Burns <that3percent@gmail.com>"]
 edition = "2018"
 description = "A simple Vec-like API over a struct of arrays layout."
@@ -10,6 +10,9 @@ readme = "README.md"
 keywords = ["struct-of-arrays", "soa", "vec"]
 categories = ["data-structures", "memory-management"]
 license = "MIT"
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 

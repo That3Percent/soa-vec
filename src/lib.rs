@@ -59,6 +59,12 @@
 //!
 //! # License
 //! [MIT](https://github.com/That3Percent/soa-vec/blob/master/LICENSE)
+//!
+//! # Related
+//! If you like this, you may like these other crates by Zac Burns (That3Percent)
+//! * [second-stack](https://github.com/That3Percent/second-stack) A Rust memory allocator for large slices that don't escape the stack.
+//! * [js-intern](https://github.com/That3Percent/js-intern) Stores one copy of each distinct JavaScript primitive
+//! * [js-object](https://github.com/That3Percent/js-object) A macro for creating JavaScript objects
 
 
 
@@ -182,6 +188,33 @@ macro_rules! soa {
 				}
 			}
 
+			/// Inserts an element at position index within each array, shifting all elements after it to the right.
+			///
+			/// # Panics
+			/// Must panic if index > len.
+			pub fn insert(&mut self, index: usize, value: ($t1 $(, $ts)*)) {
+				let len = self.len;
+				assert!(index <= len);
+				unsafe {
+					self.check_grow(); // TODO: (Performance) In the case where we do grow, this can result in redundant copying.
+
+					let ($t1 $(, $ts)*) = value;
+
+					{
+						let p = self.$t1.as_ptr().add(index);
+						copy(p, p.offset(1), len - index);
+						write(p, $t1);
+					}
+
+					$({
+						let p = self.$ts.as_ptr().add(index);
+						copy(p, p.offset(1), len - index);
+						write(p, $ts);
+					})*
+					self.len = len + 1;
+				}
+			}
+
 			/// Removes the last tuple from a soa and returns it, or None if it is empty.
 			pub fn pop(&mut self) -> Option<($t1 $(, $ts)*)> {
 				if self.len == 0 {
@@ -194,6 +227,34 @@ macro_rules! soa {
 							$(, read(self.$ts.as_ptr().add(self.len)))*
 						))
 					}
+				}
+			}
+
+			/// Removes and returns the element at position index within the vector, shifting all elements after it to the left.
+			/// # Panics
+			/// Must panic if index is out of bounds.
+			pub fn remove(&mut self, index: usize) -> ($t1 $(, $ts)*) {
+				let len = self.len;
+				assert!(index < len);
+				unsafe {
+					let $t1;
+					$(let $ts;)*
+
+					{
+						let ptr = self.$t1.as_ptr().add(index);
+						$t1 = read(ptr);
+						copy(ptr.offset(1), ptr, len - index - 1);
+					}
+
+					$({
+						let ptr = self.$ts.as_ptr().add(index);
+						$ts = read(ptr);
+						copy(ptr.offset(1), ptr, len - index - 1);
+					})*
+
+					self.len = len - 1;
+
+					($t1 $(, $ts)*)
 				}
 			}
 
@@ -362,7 +423,7 @@ macro_rules! soa {
 						// We do all the cloning first, then the ptr writing and length update
 						// to ensure drop on panic in case any clone panics. If we write to early,
 						// then the soa will not drop the most recently written item.
-						// TODO: Performance - It may be better to do each slice individually,
+						// TODO: (Performance) - It may be better to do each slice individually,
 						// but we'll need some kind of intermediate struct to handle drop before
 						// everything is put into the Soa.
 						let $t1 = (&*(self.$t1.as_ptr().add(i))).clone();
@@ -480,4 +541,25 @@ mod tests {
         assert_eq!(dst.index(0), (&1.0, &2.0));
         assert_eq!(dst.index(1), (&3.0, &4.0));
     }
+
+	#[test]
+	fn insert() {
+		let mut src = Soa2::new();
+		src.insert(0, (1, 2));
+		src.insert(0, (3, 4));
+		src.insert(1, (4, 5));
+		assert_eq!(src.index(0), (&3, &4));
+		assert_eq!(src.index(1), (&4, &5));
+		assert_eq!(src.index(2), (&1, &2));
+	}
+
+	#[test]
+	fn remove() {
+		let mut src = Soa2::new();
+		src.push((1, 2));
+		src.push((3, 4));
+		assert_eq!(src.remove(0), (1, 2));
+		assert_eq!(src.remove(0), (3, 4));
+		assert_eq!(src.len(), 0);
+	}
 }

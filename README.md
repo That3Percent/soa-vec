@@ -58,3 +58,10 @@
 
  # License
  [MIT](https://github.com/That3Percent/soa-vec/blob/master/LICENSE)
+
+
+# Related
+If you like this, you may like these other crates by Zac Burns (That3Percent)
+* [second-stack](https://github.com/That3Percent/second-stack) A Rust memory allocator for large slices that don't escape the stack.
+* [js-intern](https://github.com/That3Percent/js-intern) Stores one copy of each distinct JavaScript primitive
+* [js-object](https://github.com/That3Percent/js-object) A macro for creating JavaScript objects
