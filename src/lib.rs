@@ -182,6 +182,33 @@ macro_rules! soa {
 				}
 			}
 
+			/// Inserts an element at position index within each array, shifting all elements after it to the right.
+			///
+			/// # Panics
+			/// Must panic if index > len.
+			pub fn insert(&mut self, index: usize, value: ($t1 $(, $ts)*)) {
+				let len = self.len;
+				assert!(index <= len);
+				unsafe {
+					self.check_grow(); // TODO: (Performance) In the case where we do grow, this can result in redundant copying.
+
+					let ($t1 $(, $ts)*) = value;
+
+					{
+						let p = self.$t1.as_ptr().add(index);
+						copy(p, p.offset(1), len - index);
+						write(p, $t1);
+					}
+
+					$({
+						let p = self.$ts.as_ptr().add(index);
+						copy(p, p.offset(1), len - index);
+						write(p, $ts);
+					})*
+					self.len = len + 1;
+				}
+			}
+
 			/// Removes the last tuple from a soa and returns it, or None if it is empty.
 			pub fn pop(&mut self) -> Option<($t1 $(, $ts)*)> {
 				if self.len == 0 {
@@ -480,4 +507,15 @@ mod tests {
         assert_eq!(dst.index(0), (&1.0, &2.0));
         assert_eq!(dst.index(1), (&3.0, &4.0));
     }
+
+	#[test]
+	fn insert() {
+		let mut src = Soa2::new();
+		src.insert(0, (1, 2));
+		src.insert(0, (3, 4));
+		src.insert(1, (4, 5));
+		assert_eq!(src.index(0), (&3, &4));
+		assert_eq!(src.index(1), (&4, &5));
+		assert_eq!(src.index(2), (&1, &2));
+	}
 }
