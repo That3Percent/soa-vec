@@ -68,379 +68,382 @@
 
 
 
-
-use second_stack::*;
-use std::{alloc::*, cmp::*, marker::*, ptr::*, slice::*};
-
 /// This macro defines a struct-of-arrays style struct.
 /// It need not be called often, just once per count of generic parameters.
 macro_rules! soa {
-	($name:ident, $L:ident, $t1:ident, $($ts:ident),+) => {
-		/// Struct of arrays storage with vec API. See module docs for more information.
-		pub struct $name<$t1: Sized $(, $ts: Sized)*> {
-			len: usize,
-			capacity: usize,
-			$t1: NonNull<$t1>,
-			$($ts: NonNull<$ts>,)*
-			_marker: (PhantomData<$t1> $(, PhantomData<$ts>)*),
-		}
 
-		impl<$t1: Sized $(, $ts: Sized)*> $name<$t1 $(, $ts)*> {
-			/// Creates a new Soa with a capacity of 0
-			pub fn new() -> $name<$t1 $(, $ts)*> {
-				$name {
-					len: 0,
-					capacity: 0,
-					$t1: NonNull::dangling(),
-					$($ts: NonNull::dangling(),)*
-					_marker: (PhantomData $(, PhantomData::<$ts>)*),
-				}
+	($name:ident, $m:ident, $t1:ident, $($ts:ident),+) => {
+		mod $m {
+			use second_stack::*;
+			use std::{alloc::*, cmp::*, marker::*, ptr::*, slice::*};
+
+			/// Struct of arrays storage with vec API. See module docs for more information.
+			pub struct $name<$t1: Sized $(, $ts: Sized)*> {
+				len: usize,
+				capacity: usize,
+				$t1: NonNull<$t1>,
+				$($ts: NonNull<$ts>,)*
+				_marker: (PhantomData<$t1> $(, PhantomData<$ts>)*),
 			}
 
-			/// Constructs a new, empty Soa with the specified capacity.
-			/// The soa will be able to hold exactly capacity elements without reallocating. If capacity is 0, the soa will not allocate.
-			/// It is important to note that although the returned soa has the capacity specified, the soa will have a zero length.
-			pub fn with_capacity(capacity: usize) -> $name<$t1 $(, $ts)*> {
-				if capacity == 0 {
-					Self::new()
-				} else {
-					let ($t1 $(,$ts)*) = Self::alloc(capacity);
-
-					Self {
-						capacity,
+			impl<$t1: Sized $(, $ts: Sized)*> $name<$t1 $(, $ts)*> {
+				/// Creates a new Soa with a capacity of 0
+				pub fn new() -> $name<$t1 $(, $ts)*> {
+					$name {
 						len: 0,
-						$t1: $t1,
-						$($ts: $ts,)*
+						capacity: 0,
+						$t1: NonNull::dangling(),
+						$($ts: NonNull::dangling(),)*
 						_marker: (PhantomData $(, PhantomData::<$ts>)*),
 					}
 				}
-			}
 
-			fn dealloc(&mut self) {
-				if self.capacity > 0 {
-					let layout = Self::layout_for_capacity(self.capacity).layout;
-					unsafe { Global.dealloc(self.$t1.cast::<u8>(), layout) }
-				}
-			}
+				/// Constructs a new, empty Soa with the specified capacity.
+				/// The soa will be able to hold exactly capacity elements without reallocating. If capacity is 0, the soa will not allocate.
+				/// It is important to note that although the returned soa has the capacity specified, the soa will have a zero length.
+				pub fn with_capacity(capacity: usize) -> $name<$t1 $(, $ts)*> {
+					if capacity == 0 {
+						Self::new()
+					} else {
+						let ($t1 $(,$ts)*) = Self::alloc(capacity);
 
-			/// Allocates and partitions a new region of uninitialized memory
-			fn alloc(capacity: usize) -> (NonNull<$t1> $(, NonNull<$ts>)*) {
-				unsafe {
-					let layouts = Self::layout_for_capacity(capacity);
-					let bytes = Global.alloc(layouts.layout).unwrap();
-					(
-						bytes.cast::<$t1>()
-						$(, NonNull::new_unchecked(bytes.as_ptr().add(layouts.$ts) as *mut $ts))*
-					)
-				}
-			}
-
-			fn check_grow(&mut self) {
-				unsafe {
-					if self.len == self.capacity {
-						let capacity = (self.capacity * 2).max(4);
-						let ($t1 $(, $ts)*) = Self::alloc(capacity);
-
-						copy_nonoverlapping(self.$t1.as_ptr(), $t1.as_ptr(), self.len);
-						$(
-							copy_nonoverlapping(self.$ts.as_ptr(), $ts.as_ptr(), self.len);
-						)*
-
-						self.dealloc();
-
-						// Assign
-						self.$t1 = $t1;
-						$(self.$ts = $ts;)*
-						self.capacity = capacity;
-
+						Self {
+							capacity,
+							len: 0,
+							$t1: $t1,
+							$($ts: $ts,)*
+							_marker: (PhantomData $(, PhantomData::<$ts>)*),
+						}
 					}
 				}
-			}
 
-			/// Returns the number of tuples in the soa, also referred to as its 'length'.
-			#[inline(always)]
-			pub fn len(&self) -> usize { self.len }
-
-			/// Returns the number of elements the soa can hold without reallocating.
-			#[inline(always)]
-			pub fn capacity(&self) -> usize { self.capacity }
-
-			/// Returns true if the soa has a length of 0.
-			#[inline(always)]
-			pub fn is_empty(&self) -> bool { self.len == 0 }
-
-			/// Clears the soa, removing all values.
-			/// Note that this method has no effect on the allocated capacity of the soa.
-			pub fn clear(&mut self) {
-				while self.len > 0 {
-					self.pop();
-				}
-			}
-
-			/// Appends a tuple to the back of a soa.
-			pub fn push(&mut self, value: ($t1 $(, $ts)*)) {
-				unsafe {
-					self.check_grow();
-					let ($t1 $(, $ts)*) = value;
-					write(self.$t1.as_ptr().add(self.len), $t1);
-					$(write(self.$ts.as_ptr().add(self.len), $ts);)*
-					self.len += 1;
-				}
-			}
-
-			/// Inserts an element at position index within each array, shifting all elements after it to the right.
-			///
-			/// # Panics
-			/// Must panic if index > len.
-			pub fn insert(&mut self, index: usize, value: ($t1 $(, $ts)*)) {
-				let len = self.len;
-				assert!(index <= len);
-				unsafe {
-					self.check_grow(); // TODO: (Performance) In the case where we do grow, this can result in redundant copying.
-
-					let ($t1 $(, $ts)*) = value;
-
-					{
-						let p = self.$t1.as_ptr().add(index);
-						copy(p, p.offset(1), len - index);
-						write(p, $t1);
+				fn dealloc(&mut self) {
+					if self.capacity > 0 {
+						let layout = Self::layout_for_capacity(self.capacity).layout;
+						unsafe { Global.dealloc(self.$t1.cast::<u8>(), layout) }
 					}
-
-					$({
-						let p = self.$ts.as_ptr().add(index);
-						copy(p, p.offset(1), len - index);
-						write(p, $ts);
-					})*
-					self.len = len + 1;
 				}
-			}
 
-			/// Removes the last tuple from a soa and returns it, or None if it is empty.
-			pub fn pop(&mut self) -> Option<($t1 $(, $ts)*)> {
-				if self.len == 0 {
-					None
-				} else {
-					self.len -= 1;
+				/// Allocates and partitions a new region of uninitialized memory
+				fn alloc(capacity: usize) -> (NonNull<$t1> $(, NonNull<$ts>)*) {
 					unsafe {
-						Some((
-							read(self.$t1.as_ptr().add(self.len))
-							$(, read(self.$ts.as_ptr().add(self.len)))*
-						))
+						let layouts = Self::layout_for_capacity(capacity);
+						let bytes = Global.alloc(layouts.layout).unwrap();
+						(
+							bytes.cast::<$t1>()
+							$(, NonNull::new_unchecked(bytes.as_ptr().add(layouts.$ts) as *mut $ts))*
+						)
 					}
 				}
-			}
 
-			/// Removes and returns the element at position index within the vector, shifting all elements after it to the left.
-			/// # Panics
-			/// Must panic if index is out of bounds.
-			pub fn remove(&mut self, index: usize) -> ($t1 $(, $ts)*) {
-				let len = self.len;
-				assert!(index < len);
-				unsafe {
-					let $t1;
-					$(let $ts;)*
+				fn check_grow(&mut self) {
+					unsafe {
+						if self.len == self.capacity {
+							let capacity = (self.capacity * 2).max(4);
+							let ($t1 $(, $ts)*) = Self::alloc(capacity);
 
-					{
-						let ptr = self.$t1.as_ptr().add(index);
-						$t1 = read(ptr);
-						copy(ptr.offset(1), ptr, len - index - 1);
+							copy_nonoverlapping(self.$t1.as_ptr(), $t1.as_ptr(), self.len);
+							$(
+								copy_nonoverlapping(self.$ts.as_ptr(), $ts.as_ptr(), self.len);
+							)*
+
+							self.dealloc();
+
+							// Assign
+							self.$t1 = $t1;
+							$(self.$ts = $ts;)*
+							self.capacity = capacity;
+
+						}
 					}
-
-					$({
-						let ptr = self.$ts.as_ptr().add(index);
-						$ts = read(ptr);
-						copy(ptr.offset(1), ptr, len - index - 1);
-					})*
-
-					self.len = len - 1;
-
-					($t1 $(, $ts)*)
-				}
-			}
-
-			/// Removes a tuple from the soa and returns it.
-			/// The removed tuple is replaced by the last tuple of the soa.
-			/// This does not preserve ordering, but is O(1).
-			///
-			/// # Panics:
-			///  * Must panic if index is out of bounds
-			pub fn swap_remove(&mut self, index: usize) -> ($t1 $(, $ts)*) {
-				if index >= self.len {
-					panic!("Index out of bounds");
 				}
 
-				unsafe {
-					let $t1 = self.$t1.as_ptr().add(index);
-					$(let $ts = self.$ts.as_ptr().add(index);)*
+				/// Returns the number of tuples in the soa, also referred to as its 'length'.
+				#[inline(always)]
+				pub fn len(&self) -> usize { self.len }
 
-					let v = (
-						read($t1)
-						$(, read($ts))*
-					);
+				/// Returns the number of elements the soa can hold without reallocating.
+				#[inline(always)]
+				pub fn capacity(&self) -> usize { self.capacity }
 
-					self.len -= 1;
+				/// Returns true if the soa has a length of 0.
+				#[inline(always)]
+				pub fn is_empty(&self) -> bool { self.len == 0 }
 
-					if self.len != index {
-						copy_nonoverlapping(self.$t1.as_ptr().add(self.len), $t1, 1);
-						$(copy_nonoverlapping(self.$ts.as_ptr().add(self.len), $ts, 1);)*
+				/// Clears the soa, removing all values.
+				/// Note that this method has no effect on the allocated capacity of the soa.
+				pub fn clear(&mut self) {
+					while self.len > 0 {
+						self.pop();
 					}
-
-					v
 				}
-			}
 
-			fn layout_for_capacity(capacity: usize) -> $L {
-				let layout = Layout::array::<$t1>(capacity).unwrap();
-
-				$(let (layout, $ts) = layout.extend(Layout::array::<$ts>(capacity).unwrap()).unwrap();)*
-
-				$L {
-					layout
-					$(, $ts)*
+				/// Appends a tuple to the back of a soa.
+				pub fn push(&mut self, value: ($t1 $(, $ts)*)) {
+					unsafe {
+						self.check_grow();
+						let ($t1 $(, $ts)*) = value;
+						write(self.$t1.as_ptr().add(self.len), $t1);
+						$(write(self.$ts.as_ptr().add(self.len), $ts);)*
+						self.len += 1;
+					}
 				}
-			}
 
-			/// Returns a tuple of all the destructured tuples added to this soa.
-			#[inline(always)] // Inline for dead code elimination
-			pub fn slices<'a>(&self) -> (&'a [$t1] $(, &'a [$ts])*) {
-				unsafe {
-					(
-						from_raw_parts::<'a>(self.$t1.as_ptr(), self.len),
-						$(from_raw_parts::<'a>(self.$ts.as_ptr(), self.len),)*
-					)
+				/// Inserts an element at position index within each array, shifting all elements after it to the right.
+				///
+				/// # Panics
+				/// Must panic if index > len.
+				pub fn insert(&mut self, index: usize, value: ($t1 $(, $ts)*)) {
+					let len = self.len;
+					assert!(index <= len);
+					unsafe {
+						self.check_grow(); // TODO: (Performance) In the case where we do grow, this can result in redundant copying.
+
+						let ($t1 $(, $ts)*) = value;
+
+						{
+							let p = self.$t1.as_ptr().add(index);
+							copy(p, p.offset(1), len - index);
+							write(p, $t1);
+						}
+
+						$({
+							let p = self.$ts.as_ptr().add(index);
+							copy(p, p.offset(1), len - index);
+							write(p, $ts);
+						})*
+						self.len = len + 1;
+					}
 				}
-			}
 
-			/// Returns a tuple of iterators over each field in the soa.
-			#[inline(always)] // Inline for dead code elimination
-			pub fn iters<'a>(&self) -> (Iter<'a, $t1> $(, Iter<'a, $ts>)*) {
-				unsafe {
-					(
-						from_raw_parts::<'a>(self.$t1.as_ptr(), self.len).iter()
-						$(, from_raw_parts::<'a>(self.$ts.as_ptr(), self.len).iter())*
-					)
+				/// Removes the last tuple from a soa and returns it, or None if it is empty.
+				pub fn pop(&mut self) -> Option<($t1 $(, $ts)*)> {
+					if self.len == 0 {
+						None
+					} else {
+						self.len -= 1;
+						unsafe {
+							Some((
+								read(self.$t1.as_ptr().add(self.len))
+								$(, read(self.$ts.as_ptr().add(self.len)))*
+							))
+						}
+					}
 				}
-			}
 
-			/// Returns a tuple of mutable iterators over each field in the soa.
-			#[inline(always)] // Inline for dead code elimination
-			pub fn iters_mut<'a>(&mut self) -> (IterMut<'a, $t1> $(, IterMut<'a, $ts>)*) {
-				unsafe {
-					(
-						from_raw_parts_mut::<'a>(self.$t1.as_ptr(), self.len).iter_mut()
-						$(, from_raw_parts_mut::<'a>(self.$ts.as_ptr(), self.len).iter_mut())*
-					)
+				/// Removes and returns the element at position index within the vector, shifting all elements after it to the left.
+				/// # Panics
+				/// Must panic if index is out of bounds.
+				pub fn remove(&mut self, index: usize) -> ($t1 $(, $ts)*) {
+					let len = self.len;
+					assert!(index < len);
+					unsafe {
+						let $t1;
+						$(let $ts;)*
+
+						{
+							let ptr = self.$t1.as_ptr().add(index);
+							$t1 = read(ptr);
+							copy(ptr.offset(1), ptr, len - index - 1);
+						}
+
+						$({
+							let ptr = self.$ts.as_ptr().add(index);
+							$ts = read(ptr);
+							copy(ptr.offset(1), ptr, len - index - 1);
+						})*
+
+						self.len = len - 1;
+
+						($t1 $(, $ts)*)
+					}
 				}
-			}
 
-			/// Returns a tuple of all the destructured mutable tuples added to this soa.
-			#[inline(always)] // Inline for dead code elimination
-			pub fn slices_mut<'a>(&self) -> (&'a mut [$t1] $(, &'a mut [$ts])*) {
-				unsafe {
-					(
-						from_raw_parts_mut::<'a>(self.$t1.as_ptr(), self.len),
-						$(from_raw_parts_mut::<'a>(self.$ts.as_ptr(), self.len),)*
-					)
-				}
-			}
-
-			/// This is analogous to the index operator in vec, but returns a tuple of references.
-			/// ## Panics
-			/// * If index is >= len
-			pub fn index<'a>(&self, index: usize) -> (&'a $t1 $(, &'a $ts)*) {
-				unsafe {
+				/// Removes a tuple from the soa and returns it.
+				/// The removed tuple is replaced by the last tuple of the soa.
+				/// This does not preserve ordering, but is O(1).
+				///
+				/// # Panics:
+				///  * Must panic if index is out of bounds
+				pub fn swap_remove(&mut self, index: usize) -> ($t1 $(, $ts)*) {
 					if index >= self.len {
-						panic!("Index out of range");
+						panic!("Index out of bounds");
 					}
 
-					(
-						&*self.$t1.as_ptr().add(index)
-						$(, &*self.$ts.as_ptr().add(index))*
-					)
-				}
-			}
+					unsafe {
+						let $t1 = self.$t1.as_ptr().add(index);
+						$(let $ts = self.$ts.as_ptr().add(index);)*
 
-			/// Sorts the soa keeping related data together.
-			pub fn sort_unstable_by<F: FnMut((&$t1 $(, &$ts)*), (&$t1 $(, &$ts)*))->Ordering>(&mut self, mut f: F) {
-				if self.len < 2 {
-					return;
-				}
-				let mut indices = acquire(0..self.len);
+						let v = (
+							read($t1)
+							$(, read($ts))*
+						);
 
-				indices.sort_unstable_by(|a, b| unsafe {
-					f(
-						(&*self.$t1.as_ptr().add(*a) $(, &*self.$ts.as_ptr().add(*a))*, ),
-						(&*self.$t1.as_ptr().add(*b) $(, &*self.$ts.as_ptr().add(*b))*, ),
-					)});
+						self.len -= 1;
 
-				// Example
-				// c b d e a
-				// 4 1 0 2 3 // indices
-				// 2 1 3 4 0 // lookup
+						if self.len != index {
+							copy_nonoverlapping(self.$t1.as_ptr().add(self.len), $t1, 1);
+							$(copy_nonoverlapping(self.$ts.as_ptr().add(self.len), $ts, 1);)*
+						}
 
-				let mut lookup = unsafe { acquire_uninitialized(self.len) };
-				for (i, index) in indices.iter().enumerate() {
-					lookup[*index] = i;
+						v
+					}
 				}
 
-				let ($t1 $(, $ts)*) = self.slices_mut();
+				fn layout_for_capacity(capacity: usize) -> OwnLayout {
+					let layout = Layout::array::<$t1>(capacity).unwrap();
 
-				for i in 0..indices.len() {
-					let dest = indices[i]; // The index that should go here
-					if i != dest {
-						// Swap
-						$t1.swap(i, dest);
-						$($ts.swap(i, dest);)*
+					$(let (layout, $ts) = layout.extend(Layout::array::<$ts>(capacity).unwrap()).unwrap();)*
 
-						// Account for swaps that already happened
-						indices[lookup[i]] = dest;
-						lookup[dest] = lookup[i];
+					OwnLayout {
+						layout
+						$(, $ts)*
+					}
+				}
+
+				/// Returns a tuple of all the destructured tuples added to this soa.
+				#[inline(always)] // Inline for dead code elimination
+				pub fn slices<'a>(&self) -> (&'a [$t1] $(, &'a [$ts])*) {
+					unsafe {
+						(
+							from_raw_parts::<'a>(self.$t1.as_ptr(), self.len),
+							$(from_raw_parts::<'a>(self.$ts.as_ptr(), self.len),)*
+						)
+					}
+				}
+
+				/// Returns a tuple of iterators over each field in the soa.
+				#[inline(always)] // Inline for dead code elimination
+				pub fn iters<'a>(&self) -> (Iter<'a, $t1> $(, Iter<'a, $ts>)*) {
+					unsafe {
+						(
+							from_raw_parts::<'a>(self.$t1.as_ptr(), self.len).iter()
+							$(, from_raw_parts::<'a>(self.$ts.as_ptr(), self.len).iter())*
+						)
+					}
+				}
+
+				/// Returns a tuple of mutable iterators over each field in the soa.
+				#[inline(always)] // Inline for dead code elimination
+				pub fn iters_mut<'a>(&mut self) -> (IterMut<'a, $t1> $(, IterMut<'a, $ts>)*) {
+					unsafe {
+						(
+							from_raw_parts_mut::<'a>(self.$t1.as_ptr(), self.len).iter_mut()
+							$(, from_raw_parts_mut::<'a>(self.$ts.as_ptr(), self.len).iter_mut())*
+						)
+					}
+				}
+
+				/// Returns a tuple of all the destructured mutable tuples added to this soa.
+				#[inline(always)] // Inline for dead code elimination
+				pub fn slices_mut<'a>(&self) -> (&'a mut [$t1] $(, &'a mut [$ts])*) {
+					unsafe {
+						(
+							from_raw_parts_mut::<'a>(self.$t1.as_ptr(), self.len),
+							$(from_raw_parts_mut::<'a>(self.$ts.as_ptr(), self.len),)*
+						)
+					}
+				}
+
+				/// This is analogous to the index operator in vec, but returns a tuple of references.
+				/// ## Panics
+				/// * If index is >= len
+				pub fn index<'a>(&self, index: usize) -> (&'a $t1 $(, &'a $ts)*) {
+					unsafe {
+						if index >= self.len {
+							panic!("Index out of range");
+						}
+
+						(
+							&*self.$t1.as_ptr().add(index)
+							$(, &*self.$ts.as_ptr().add(index))*
+						)
+					}
+				}
+
+				/// Sorts the soa keeping related data together.
+				pub fn sort_unstable_by<F: FnMut((&$t1 $(, &$ts)*), (&$t1 $(, &$ts)*))->Ordering>(&mut self, mut f: F) {
+					if self.len < 2 {
+						return;
+					}
+					let mut indices = acquire(0..self.len);
+
+					indices.sort_unstable_by(|a, b| unsafe {
+						f(
+							(&*self.$t1.as_ptr().add(*a) $(, &*self.$ts.as_ptr().add(*a))*, ),
+							(&*self.$t1.as_ptr().add(*b) $(, &*self.$ts.as_ptr().add(*b))*, ),
+						)});
+
+					// Example
+					// c b d e a
+					// 4 1 0 2 3 // indices
+					// 2 1 3 4 0 // lookup
+
+					let mut lookup = unsafe { acquire_uninitialized(self.len) };
+					for (i, index) in indices.iter().enumerate() {
+						lookup[*index] = i;
+					}
+
+					let ($t1 $(, $ts)*) = self.slices_mut();
+
+					for i in 0..indices.len() {
+						let dest = indices[i]; // The index that should go here
+						if i != dest {
+							// Swap
+							$t1.swap(i, dest);
+							$($ts.swap(i, dest);)*
+
+							// Account for swaps that already happened
+							indices[lookup[i]] = dest;
+							lookup[dest] = lookup[i];
+						}
 					}
 				}
 			}
-		}
 
-		struct $L {
-			layout: Layout,
-			$($ts: usize,)*
-		}
-
-
-		impl<$t1: Sized $(, $ts: Sized)*> Drop for $name<$t1 $(, $ts)*> {
-			fn drop(&mut self) {
-				self.clear(); // Drop owned items
-				self.dealloc()
+			struct OwnLayout {
+				layout: Layout,
+				$($ts: usize,)*
 			}
-		}
 
 
-		impl<$t1: Clone + Sized $(, $ts: Clone + Sized)*> Clone for $name<$t1 $(, $ts)*> {
-			fn clone(&self) -> Self {
-				let mut result = Self::with_capacity(self.len);
-
-				unsafe {
-					for i in 0..self.len {
-						// We do all the cloning first, then the ptr writing and length update
-						// to ensure drop on panic in case any clone panics. If we write to early,
-						// then the soa will not drop the most recently written item.
-						// TODO: (Performance) - It may be better to do each slice individually,
-						// but we'll need some kind of intermediate struct to handle drop before
-						// everything is put into the Soa.
-						let $t1 = (&*(self.$t1.as_ptr().add(i))).clone();
-						$(let $ts = (&*(self.$ts.as_ptr().add(i))).clone();)*
-						write(result.$t1.as_ptr().add(i), $t1);
-						$(write(result.$ts.as_ptr().add(i), $ts);)*;
-
-						result.len = i + 1;
-					}
+			impl<$t1: Sized $(, $ts: Sized)*> Drop for $name<$t1 $(, $ts)*> {
+				fn drop(&mut self) {
+					self.clear(); // Drop owned items
+					self.dealloc()
 				}
-				result
+			}
+
+
+			impl<$t1: Clone + Sized $(, $ts: Clone + Sized)*> Clone for $name<$t1 $(, $ts)*> {
+				fn clone(&self) -> Self {
+					let mut result = Self::with_capacity(self.len);
+
+					unsafe {
+						for i in 0..self.len {
+							// We do all the cloning first, then the ptr writing and length update
+							// to ensure drop on panic in case any clone panics. If we write to early,
+							// then the soa will not drop the most recently written item.
+							// TODO: (Performance) - It may be better to do each slice individually,
+							// but we'll need some kind of intermediate struct to handle drop before
+							// everything is put into the Soa.
+							let $t1 = (&*(self.$t1.as_ptr().add(i))).clone();
+							$(let $ts = (&*(self.$ts.as_ptr().add(i))).clone();)*
+							write(result.$t1.as_ptr().add(i), $t1);
+							$(write(result.$ts.as_ptr().add(i), $ts);)*;
+
+							result.len = i + 1;
+						}
+					}
+					result
+				}
+			}
+
+			impl<$t1: Sized $(, $ts: Sized)*> Default for $name<$t1 $(, $ts)*> {
+				fn default() -> Self { Self::new() }
 			}
 		}
-
-		impl<$t1: Sized $(, $ts: Sized)*> Default for $name<$t1 $(, $ts)*> {
-			fn default() -> Self { Self::new() }
-		}
+		pub use $m::$name;
 	};
 }
 
