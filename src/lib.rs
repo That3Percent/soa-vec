@@ -67,6 +67,7 @@
 //! * [js-object](https://github.com/That3Percent/js-object) A macro for creating JavaScript objects
 
 
+// TODO: ZSTs break iterators and allocations. https://doc.rust-lang.org/nomicon/vec-zsts.html
 
 /// This macro defines a struct-of-arrays style struct.
 /// It need not be called often, just once per count of generic parameters.
@@ -76,6 +77,8 @@ macro_rules! soa {
 		pub mod $name {
 			use second_stack::*;
 			use std::{alloc::*, cmp::*, marker::*, ptr::*, slice::*};
+			use std::ops::RangeBounds;
+			use core::ops::Bound::{Included, Excluded, Unbounded};
 
 			/// Struct of arrays storage with vec API. See module docs for more information.
 			pub struct $name<$t1: Sized $(, $ts: Sized)*> {
@@ -399,6 +402,32 @@ macro_rules! soa {
 						}
 					}
 				}
+
+				pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> Drain<$t1 $(, $ts)*> {
+
+					let len = self.len();
+					let start = match range.start_bound() {
+						Included(&n) => n,
+						Excluded(&n) => n + 1,
+						Unbounded    => 0,
+					};
+					let end = match range.end_bound() {
+						Included(&n) => n + 1,
+						Excluded(&n) => n,
+						Unbounded    => len,
+					};
+					assert!(start <= end);
+					assert!(end <= len);
+
+					let iter = unsafe { RawValIter::new(&self, start, end - start) };
+					self.len = start;
+					Drain {
+						tail_start: end,
+						tail_len: len - end,
+						iter,
+						soa: NonNull::from(self),
+					}
+				}
 			}
 
 			struct OwnLayout {
@@ -406,6 +435,138 @@ macro_rules! soa {
 				$($ts: usize,)*
 			}
 
+			struct RawValIter<'a, $t1: 'a $(, $ts: 'a)*> {
+				$t1: StartEnd<'a, $t1>,
+				$($ts: StartEnd<'a, $ts>,)*
+			}
+
+			impl<'a, $t1: 'a $(, $ts: 'a)*> RawValIter<'a, $t1 $(, $ts)*> {
+				unsafe fn new(soa: &$name<$t1 $(, $ts)*>, start: usize, len: usize) -> Self {
+					Self {
+						$t1: StartEnd::new(soa.$t1, start, len),
+						$($ts: StartEnd::new(soa.$ts, start, len),)*
+					}
+				}
+			}
+
+			impl<'a, $t1: 'a $(, $ts: 'a)*> Iterator for RawValIter<'a, $t1 $(, $ts)*> {
+				type Item = ($t1 $(, $ts)*);
+
+				fn next(&mut self) -> Option<Self::Item> {
+					if self.$t1.is_empty() {
+						None
+					} else {
+						unsafe { Some((self.$t1.next() $(, self.$ts.next())*)) }
+					}
+				}
+				fn size_hint(&self) -> (usize, Option<usize>) {
+					let len = self.$t1.len();
+					(len, Some(len))
+				}
+			}
+
+			impl<'a, $t1 $(, $ts)*> ExactSizeIterator for RawValIter<'a, $t1 $(, $ts)*> {
+				fn len(&self) -> usize {
+					self.$t1.len()
+				}
+			}
+
+			impl<'a, $t1: 'a $(, $ts: 'a)*> DoubleEndedIterator for RawValIter<'a, $t1 $(, $ts)*> {
+				fn next_back(&mut self) -> Option<Self::Item> {
+					if self.$t1.is_empty() {
+						None
+					} else {
+						unsafe { Some((self.$t1.next_back() $(, self.$ts.next_back())*)) }
+					}
+				}
+			}
+
+			// TODO: Consider using Slice::Iter
+			struct StartEnd<'a, T: 'a> {
+				start: *const T,
+				end: *const T, // TODO: Note the comment about ZST here: https://doc.rust-lang.org/src/core/slice/mod.rs.html#3285-3291 in Iter<'a, T: 'a>
+				_marker: PhantomData<&'a T>,
+			}
+
+			impl<'a, T: 'a> StartEnd<'a, T> {
+				pub unsafe fn new(ptr: NonNull<T>, offset: usize, len: usize) -> Self {
+					let start = if len == 0 { ptr.as_ptr() } else { ptr.as_ptr().add(offset) };
+					Self {
+						start,
+						end: if len == 0 { start } else { start.add(len) },
+						_marker: PhantomData,
+					}
+				}
+
+				pub unsafe fn next(&mut self) -> T {
+					let result = read(self.start);
+					self.start = self.start.offset(1);
+					result
+				}
+
+				pub unsafe fn next_back(&mut self) -> T {
+					self.end = self.end.offset(-1);
+					read(self.end)
+				}
+
+				pub fn is_empty(&self) -> bool {
+					self.start == self.end
+				}
+
+				pub fn len(&self) -> usize {
+					(self.end as usize - self.start as usize) / std::mem::size_of::<T>()
+				}
+			}
+
+			// TODO: These may be multiple lifetimes, with the first lifetime bound by the others. Consider (though proc_macro is needed to create lifetime names here)
+			pub struct Drain<'a, $t1: 'a $(, $ts: 'a)*> {
+				soa: NonNull<$name<$t1 $(, $ts)*>>,
+				iter: RawValIter<'a, $t1 $(, $ts)*>,
+				tail_start: usize,
+				tail_len: usize,
+			}
+
+			impl<'a, $t1: 'a $(, $ts: 'a)*> Iterator for Drain<'a, $t1 $(, $ts)*> {
+				type Item = ($t1 $(, $ts)*);
+				fn next(&mut self) -> Option<Self::Item> { self.iter.next() }
+				fn size_hint(&self) -> (usize, Option<usize>) { self.iter.size_hint() }
+			}
+
+			impl<'a, $t1: 'a $(, $ts: 'a)*> DoubleEndedIterator for Drain<'a, $t1 $(, $ts)*> {
+				fn next_back(&mut self) -> Option<Self::Item> { self.iter.next_back() }
+			}
+
+			impl<'a, $t1: 'a $(, $ts: 'a)*> ExactSizeIterator for Drain<'a, $t1 $(, $ts)*> {
+				fn len(&self) -> usize { self.iter.len() }
+			}
+
+			impl<'a, $t1: 'a $(, $ts: 'a)*> Drop for Drain<'a, $t1 $(, $ts)*> {
+				fn drop(&mut self) {
+					self.for_each(drop);
+
+					if self.tail_len > 0 {
+						unsafe {
+							let source_soa = self.soa.as_mut();
+							let start = source_soa.len();
+							let tail = self.tail_start;
+							if tail != start {
+								{
+									let src = source_soa.$t1.as_ptr().add(tail);
+									let dst = source_soa.$t1.as_ptr().add(start);
+									copy(src, dst, self.tail_len);
+								}
+
+								$({
+									let src = source_soa.$ts.as_ptr().add(tail);
+									let dst = source_soa.$ts.as_ptr().add(start);
+									copy(src, dst, self.tail_len);
+								})*
+							}
+							source_soa.len = start + self.tail_len;
+						}
+					}
+				}
+			}
 
 			impl<$t1: Sized $(, $ts: Sized)*> Drop for $name<$t1 $(, $ts)*> {
 				fn drop(&mut self) {
@@ -458,6 +619,10 @@ soa!(Soa8, T1, T2, T3, T4, T5, T6, T7, T8);
 mod tests {
     use super::{Soa2::Soa2, Soa3::Soa3};
     use testdrop::TestDrop;
+
+	fn assert_all_dropped(td: &TestDrop) {
+		assert_eq!(td.num_dropped_items(), td.num_tracked_items());
+	}
 
     #[test]
     fn layouts_do_not_overlap() {
@@ -519,18 +684,21 @@ mod tests {
             let mut soa = Soa2::new();
             soa.push((1.0, item));
 
-            // Did not drop when moved into the vec
+            // Did not drop when moved into the soa
             td.assert_no_drop(id);
 
-            // Did not drop through resizing the vec.
+            // Did not drop through resizing the soa.
             for _ in 0..50 {
                 soa.push((2.0, td.new_item().1));
             }
             td.assert_no_drop(id);
         }
-        // Dropped with the vec
+        // Dropped with the soa
         td.assert_drop(id);
+
+		assert_all_dropped(&td);
     }
+
 
     #[test]
     fn clones() {
@@ -563,5 +731,40 @@ mod tests {
 		assert_eq!(src.remove(0), (1, 2));
 		assert_eq!(src.remove(0), (3, 4));
 		assert_eq!(src.len(), 0);
+	}
+
+	#[test]
+	fn drain() {
+
+		let td = TestDrop::new();
+        let (id, item) = td.new_item();
+        let mut soa = Soa2::new();
+        soa.push((1.0, item));
+		let (_id2, item2) = td.new_item();
+		soa.push((1.0, item2));
+
+		let drain = soa.drain(..1);
+		// Not dropped when moved into drain
+		td.assert_no_drop(id);
+
+		// drain yields only the items in the range
+		let mut count = 0;
+		for drained in drain {
+			count += 1;
+			assert_eq!(drained.0, 1.0);
+		}
+		assert_eq!(1, count);
+
+
+		// Item was dropped
+        td.assert_drop(id);
+
+		// Unaltered item left
+		assert_eq!(, );
+
+		// Not doubly dropped
+		drop(soa);
+
+		assert_all_dropped(&td);
 	}
 }
