@@ -10,7 +10,7 @@
 //!
 //! # Example
 //! ```
-//! # use soa_vec::Soa3;
+//! # use soa_vec::Soa3::Soa3;
 //! /// Some 'entity' data.
 //! # #[derive(Copy, Clone)]
 //! struct Position { x: f64, y: f64 }
@@ -72,8 +72,8 @@
 /// It need not be called often, just once per count of generic parameters.
 macro_rules! soa {
 
-	($name:ident, $m:ident, $t1:ident, $($ts:ident),+) => {
-		mod $m {
+	($name:ident, $t1:ident, $($ts:ident),+) => {
+		pub mod $name {
 			use second_stack::*;
 			use std::{alloc::*, cmp::*, marker::*, ptr::*, slice::*};
 
@@ -443,21 +443,20 @@ macro_rules! soa {
 				fn default() -> Self { Self::new() }
 			}
 		}
-		pub use $m::$name;
 	};
 }
 
-soa!(Soa2, _2, T1, T2);
-soa!(Soa3, _3, T1, T2, T3);
-soa!(Soa4, _4, T1, T2, T3, T4);
-soa!(Soa5, _5, T1, T2, T3, T4, T5);
-soa!(Soa6, _6, T1, T2, T3, T4, T5, T6);
-soa!(Soa7, _7, T1, T2, T3, T4, T5, T6, T7);
-soa!(Soa8, _8, T1, T2, T3, T4, T5, T6, T7, T8);
+soa!(Soa2, T1, T2);
+soa!(Soa3, T1, T2, T3);
+soa!(Soa4, T1, T2, T3, T4);
+soa!(Soa5, T1, T2, T3, T4, T5);
+soa!(Soa6, T1, T2, T3, T4, T5, T6);
+soa!(Soa7, T1, T2, T3, T4, T5, T6, T7);
+soa!(Soa8, T1, T2, T3, T4, T5, T6, T7, T8);
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{Soa2::Soa2, Soa3::Soa3};
     use testdrop::TestDrop;
 
     #[test]
