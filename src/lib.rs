@@ -741,7 +741,7 @@ mod tests {
         let mut soa = Soa2::new();
         soa.push((1.0, item));
 		let (_id2, item2) = td.new_item();
-		soa.push((1.0, item2));
+		soa.push((2.0, item2));
 
 		let drain = soa.drain(..1);
 		// Not dropped when moved into drain
@@ -759,8 +759,8 @@ mod tests {
 		// Item was dropped
         td.assert_drop(id);
 
-		// Unaltered item left
-		assert_eq!(, );
+		// Unaltered item remains
+		assert_eq!(*soa.index(0).0, 2.0);
 
 		// Not doubly dropped
 		drop(soa);
